@@ -1466,4 +1466,64 @@ mod tests {
         };
         assert_eq!(row.last_modified(), None);
     }
+
+    #[test]
+    fn test_externally_created_repo_with_autocrlf() {
+        use std::process::Command;
+
+        let dir = TempDir::new().unwrap();
+        let path = dir.path();
+
+        // Create repo via CLI (like an external tool would).
+        Command::new("git")
+            .args(["init"])
+            .current_dir(path)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["config", "user.name", "Test"])
+            .current_dir(path)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["config", "user.email", "test@test.com"])
+            .current_dir(path)
+            .output()
+            .unwrap();
+        // Force autocrlf=true to simulate Windows default.
+        Command::new("git")
+            .args(["config", "core.autocrlf", "true"])
+            .current_dir(path)
+            .output()
+            .unwrap();
+
+        // Write a JSONL data file and commit it.
+        let table_dir = path.join("t");
+        std::fs::create_dir_all(&table_dir).unwrap();
+        std::fs::write(
+            table_dir.join("items_00.jsonl"),
+            "{\"id\":\"test\",\"title\":\"Hello\"}\n",
+        )
+        .unwrap();
+        Command::new("git")
+            .args(["add", "."])
+            .current_dir(path)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["commit", "-m", "init"])
+            .current_dir(path)
+            .output()
+            .unwrap();
+
+        // Open with synctato and transact — this must succeed even though the
+        // repo was created externally with autocrlf=true.
+        let mut store = Store::<TestDb>::open(path).unwrap();
+        store
+            .transact("test", |tx| {
+                tx.t.upsert(make_item("new", "New Item"));
+                Ok(())
+            })
+            .expect("transact should succeed on externally-created repo with autocrlf=true");
+    }
 }
