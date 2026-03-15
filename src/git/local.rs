@@ -87,8 +87,7 @@ pub(crate) fn ensure_gitattributes(repo: &Repository) -> anyhow::Result<()> {
         return Ok(());
     }
 
-    std::fs::write(&ga_path, "*.jsonl -text\n")
-        .context("failed to write .gitattributes")?;
+    std::fs::write(&ga_path, "*.jsonl -text\n").context("failed to write .gitattributes")?;
 
     // Stage .gitattributes itself.
     let mut index = repo.index().context("failed to open index")?;
@@ -100,7 +99,13 @@ pub(crate) fn ensure_gitattributes(repo: &Repository) -> anyhow::Result<()> {
     // Renormalize existing tracked files so their index entries match the new
     // attributes.  This is a no-op on a fresh repo.
     let _ = std::process::Command::new("git")
-        .args(["-C", &workdir.to_string_lossy(), "add", "--renormalize", "."])
+        .args([
+            "-C",
+            &workdir.to_string_lossy(),
+            "add",
+            "--renormalize",
+            ".",
+        ])
         .output();
 
     // Re-read the index after the CLI may have mutated it.
@@ -631,8 +636,7 @@ mod tests {
         let repo = init_repo(clone_dir.path());
         setup_git_config(&repo);
 
-        repo.remote("origin", &file_url(origin_dir.path()))
-            .unwrap();
+        repo.remote("origin", &file_url(origin_dir.path())).unwrap();
 
         write_data(
             clone_dir.path(),
@@ -739,8 +743,7 @@ mod tests {
         let repo = init_repo(clone_dir.path());
         setup_git_config(&repo);
 
-        repo.remote("origin", &file_url(origin_dir.path()))
-            .unwrap();
+        repo.remote("origin", &file_url(origin_dir.path())).unwrap();
 
         let other_dir = TempDir::new().unwrap();
         let other_output = Command::new("git")
@@ -757,8 +760,7 @@ mod tests {
             Ok(r) => r,
             Err(_) => {
                 let r = init_repo(other_dir.path());
-                r.remote("origin", &file_url(origin_dir.path()))
-                    .unwrap();
+                r.remote("origin", &file_url(origin_dir.path())).unwrap();
                 r
             }
         };
@@ -837,8 +839,7 @@ mod tests {
         let clone_dir = TempDir::new().unwrap();
         let repo = init_repo(clone_dir.path());
         setup_git_config(&repo);
-        repo.remote("origin", &file_url(origin_dir.path()))
-            .unwrap();
+        repo.remote("origin", &file_url(origin_dir.path())).unwrap();
 
         write_data(
             clone_dir.path(),
@@ -869,8 +870,7 @@ mod tests {
         let clone_dir = TempDir::new().unwrap();
         let repo = init_repo(clone_dir.path());
         setup_git_config(&repo);
-        repo.remote("origin", &file_url(origin_dir.path()))
-            .unwrap();
+        repo.remote("origin", &file_url(origin_dir.path())).unwrap();
 
         write_data(
             clone_dir.path(),
@@ -954,8 +954,7 @@ mod tests {
         let clone_dir = TempDir::new().unwrap();
         let repo = init_repo(clone_dir.path());
         setup_git_config(&repo);
-        repo.remote("origin", &file_url(origin_dir.path()))
-            .unwrap();
+        repo.remote("origin", &file_url(origin_dir.path())).unwrap();
 
         write_data(
             clone_dir.path(),
