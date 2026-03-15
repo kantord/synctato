@@ -74,7 +74,66 @@ pub(crate) fn is_clean(repo: &Repository) -> anyhow::Result<bool> {
     Ok(!dirty)
 }
 
+/// Ensure a `.gitattributes` with `*.jsonl -text` exists and is committed.
+///
+/// On Windows, git defaults to `core.autocrlf=true` which converts LF→CRLF on
+/// checkout.  Since synctato always writes LF, without `-text` the working tree
+/// appears permanently dirty.  We also `--renormalize` so that any files already
+/// committed under the old rules get fixed in one shot.
+pub(crate) fn ensure_gitattributes(repo: &Repository) -> anyhow::Result<()> {
+    let workdir = repo.workdir().context("bare repo not supported")?;
+    let ga_path = workdir.join(".gitattributes");
+    if ga_path.exists() {
+        return Ok(());
+    }
+
+    std::fs::write(&ga_path, "*.jsonl -text\n").context("failed to write .gitattributes")?;
+
+    // Stage .gitattributes itself.
+    let mut index = repo.index().context("failed to open index")?;
+    index
+        .add_path(Path::new(".gitattributes"))
+        .context("failed to stage .gitattributes")?;
+    index.write().context("failed to write index")?;
+
+    // Renormalize existing tracked files so their index entries match the new
+    // attributes.  This is a no-op on a fresh repo.
+    let _ = std::process::Command::new("git")
+        .args([
+            "-C",
+            &workdir.to_string_lossy(),
+            "add",
+            "--renormalize",
+            ".",
+        ])
+        .output();
+
+    // Re-read the index after the CLI may have mutated it.
+    let mut index = repo.index().context("failed to open index")?;
+    let tree_oid = index.write_tree().context("failed to write tree")?;
+    let tree = repo.find_tree(tree_oid)?;
+    let sig = Signature::now("synctato", "synctato@localhost")?;
+
+    let parent = match repo.head() {
+        Ok(head) => Some(head.peel_to_commit().context("failed to peel HEAD")?),
+        Err(_) => None,
+    };
+    let parents: Vec<&git2::Commit> = parent.iter().collect();
+    repo.commit(
+        Some("HEAD"),
+        &sig,
+        &sig,
+        "configure .gitattributes",
+        &tree,
+        &parents,
+    )
+    .context("failed to commit .gitattributes")?;
+
+    Ok(())
+}
+
 pub(crate) fn ensure_clean(repo: &Repository) -> anyhow::Result<()> {
+    ensure_gitattributes(repo)?;
     if !is_clean(repo)? {
         bail!("store has uncommitted changes; commit or discard them before proceeding");
     }
@@ -320,7 +379,15 @@ mod tests {
     fn init_repo(path: &Path) -> Repository {
         let mut opts = git2::RepositoryInitOptions::new();
         opts.initial_head("main");
-        Repository::init_opts(path, &opts).unwrap()
+        let repo = Repository::init_opts(path, &opts).unwrap();
+        // Write and stage .gitattributes so autocrlf doesn't cause phantom diffs
+        // on Windows.  Staging it means the next auto_commit (or manual commit)
+        // will include it, and clones will inherit the attribute.
+        fs::write(path.join(".gitattributes"), "*.jsonl -text\n").unwrap();
+        let mut index = repo.index().unwrap();
+        index.add_path(Path::new(".gitattributes")).unwrap();
+        index.write().unwrap();
+        repo
     }
 
     fn init_bare_repo(path: &Path) -> Repository {
@@ -334,6 +401,19 @@ mod tests {
         let mut config = repo.config().unwrap();
         config.set_str("user.name", "Test").unwrap();
         config.set_str("user.email", "test@test.com").unwrap();
+    }
+
+    /// Convert a filesystem path to a `file://` URL.
+    /// On Windows, backslashes are replaced with forward slashes and absolute
+    /// paths get the required three-slash prefix (`file:///C:/...`).
+    fn file_url(path: &Path) -> String {
+        let s = path.to_string_lossy().replace('\\', "/");
+        if s.starts_with('/') {
+            format!("file://{s}")
+        } else {
+            // Windows absolute path, e.g. C:/Users/...
+            format!("file:///{s}")
+        }
     }
 
     /// Write a data file into a table directory (the kind auto_commit should track).
@@ -556,8 +636,7 @@ mod tests {
         let repo = init_repo(clone_dir.path());
         setup_git_config(&repo);
 
-        repo.remote("origin", &format!("file://{}", origin_dir.path().display()))
-            .unwrap();
+        repo.remote("origin", &file_url(origin_dir.path())).unwrap();
 
         write_data(
             clone_dir.path(),
@@ -572,7 +651,7 @@ mod tests {
         let other_output = Command::new("git")
             .args([
                 "clone",
-                &format!("file://{}", origin_dir.path().display()),
+                &file_url(origin_dir.path()),
                 &other_dir.path().to_string_lossy(),
             ])
             .output()
@@ -664,14 +743,13 @@ mod tests {
         let repo = init_repo(clone_dir.path());
         setup_git_config(&repo);
 
-        repo.remote("origin", &format!("file://{}", origin_dir.path().display()))
-            .unwrap();
+        repo.remote("origin", &file_url(origin_dir.path())).unwrap();
 
         let other_dir = TempDir::new().unwrap();
         let other_output = Command::new("git")
             .args([
                 "clone",
-                &format!("file://{}", origin_dir.path().display()),
+                &file_url(origin_dir.path()),
                 &other_dir.path().to_string_lossy(),
             ])
             .output()
@@ -682,8 +760,7 @@ mod tests {
             Ok(r) => r,
             Err(_) => {
                 let r = init_repo(other_dir.path());
-                r.remote("origin", &format!("file://{}", origin_dir.path().display()))
-                    .unwrap();
+                r.remote("origin", &file_url(origin_dir.path())).unwrap();
                 r
             }
         };
@@ -762,8 +839,7 @@ mod tests {
         let clone_dir = TempDir::new().unwrap();
         let repo = init_repo(clone_dir.path());
         setup_git_config(&repo);
-        repo.remote("origin", &format!("file://{}", origin_dir.path().display()))
-            .unwrap();
+        repo.remote("origin", &file_url(origin_dir.path())).unwrap();
 
         write_data(
             clone_dir.path(),
@@ -794,8 +870,7 @@ mod tests {
         let clone_dir = TempDir::new().unwrap();
         let repo = init_repo(clone_dir.path());
         setup_git_config(&repo);
-        repo.remote("origin", &format!("file://{}", origin_dir.path().display()))
-            .unwrap();
+        repo.remote("origin", &file_url(origin_dir.path())).unwrap();
 
         write_data(
             clone_dir.path(),
@@ -810,7 +885,7 @@ mod tests {
         let other_output = Command::new("git")
             .args([
                 "clone",
-                &format!("file://{}", origin_dir.path().display()),
+                &file_url(origin_dir.path()),
                 &other_dir.path().to_string_lossy().as_ref(),
             ])
             .output()
@@ -879,8 +954,7 @@ mod tests {
         let clone_dir = TempDir::new().unwrap();
         let repo = init_repo(clone_dir.path());
         setup_git_config(&repo);
-        repo.remote("origin", &format!("file://{}", origin_dir.path().display()))
-            .unwrap();
+        repo.remote("origin", &file_url(origin_dir.path())).unwrap();
 
         write_data(
             clone_dir.path(),
