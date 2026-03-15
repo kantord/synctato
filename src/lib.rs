@@ -1467,14 +1467,22 @@ mod tests {
         assert_eq!(row.last_modified(), None);
     }
 
+    /// Reproduce the Windows CRLF bug: create a repo without .gitattributes,
+    /// commit JSONL data with autocrlf=true, then check out the files so git
+    /// rewrites them with CRLF on disk. After that, is_clean (via libgit2)
+    /// should still report clean.
+    ///
+    /// On Linux, autocrlf=true doesn't actually write CRLF on checkout, so
+    /// this test passes trivially. On Windows it exercises the real bug path.
+    /// Push this test WITHOUT the fix to see it fail on Windows CI.
     #[test]
-    fn test_externally_created_repo_with_autocrlf() {
+    fn test_is_clean_after_checkout_with_autocrlf() {
         use std::process::Command;
 
         let dir = TempDir::new().unwrap();
         let path = dir.path();
 
-        // Create repo via CLI (like an external tool would).
+        // Create repo with autocrlf=true (the Windows default).
         Command::new("git")
             .args(["init"])
             .current_dir(path)
@@ -1490,14 +1498,13 @@ mod tests {
             .current_dir(path)
             .output()
             .unwrap();
-        // Force autocrlf=true to simulate Windows default.
         Command::new("git")
             .args(["config", "core.autocrlf", "true"])
             .current_dir(path)
             .output()
             .unwrap();
 
-        // Write a JSONL data file and commit it.
+        // Write JSONL data and commit it. No .gitattributes exists.
         let table_dir = path.join("t");
         std::fs::create_dir_all(&table_dir).unwrap();
         std::fs::write(
@@ -1516,26 +1523,27 @@ mod tests {
             .output()
             .unwrap();
 
-        // .gitattributes must NOT exist yet — ensure_gitattributes has to create it.
+        // Force a checkout so git rewrites working-tree files through the
+        // autocrlf filter. On Windows this converts LF→CRLF; on Linux it's
+        // a no-op but the test structure is the same.
+        Command::new("git")
+            .args(["checkout", "HEAD", "--", "."])
+            .current_dir(path)
+            .output()
+            .unwrap();
+
         assert!(
             !path.join(".gitattributes").exists(),
-            ".gitattributes should not exist before transact"
+            ".gitattributes must not exist — ensure_gitattributes has to create it"
         );
 
-        // Open with synctato and transact — this must succeed even though the
-        // repo was created externally with autocrlf=true.
-        let mut store = Store::<TestDb>::open(path).unwrap();
-        store
-            .transact("test", |tx| {
-                tx.t.upsert(make_item("new", "New Item"));
-                Ok(())
-            })
-            .expect("transact should succeed on externally-created repo with autocrlf=true");
-
-        // ensure_gitattributes should have created and committed .gitattributes.
+        // Open the repo and call is_clean directly (no ensure_gitattributes).
+        // On Windows with autocrlf=true, this will see the CRLF-on-disk files
+        // as dirty — that's the bug this test is meant to surface.
+        let repo = git::open_repo(path).unwrap();
         assert!(
-            path.join(".gitattributes").exists(),
-            ".gitattributes should exist after transact"
+            git::is_clean(&repo).unwrap(),
+            "is_clean should report clean after checkout (fails on Windows without .gitattributes)"
         );
     }
 }
