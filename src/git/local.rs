@@ -32,30 +32,8 @@ pub fn open_or_init_repo(path: &Path) -> anyhow::Result<Repository> {
         Err(_) => {
             let repo = Repository::init(path)
                 .with_context(|| format!("failed to init git repo at {}", path.display()))?;
-
-            // Prevent line-ending conversion on JSONL data files (cross-platform compat).
-            let workdir = repo.workdir().context("bare repo not supported")?;
-            let ga_path = workdir.join(".gitattributes");
-            if !ga_path.exists() {
-                std::fs::write(&ga_path, "*.jsonl -text\n")
-                    .context("failed to write .gitattributes")?;
-            }
-            let mut index = repo.index().context("failed to open index")?;
-            index
-                .add_path(Path::new(".gitattributes"))
-                .context("failed to stage .gitattributes")?;
-            index.write().context("failed to write index")?;
-
             if !is_clean(&repo)? {
-                // auto_commit will stage data files; .gitattributes is already indexed.
                 auto_commit(&repo, "init store")?;
-            } else {
-                // No data files yet — commit just .gitattributes.
-                let tree_oid = index.write_tree().context("failed to write tree")?;
-                let tree = repo.find_tree(tree_oid)?;
-                let sig = signature(&repo)?;
-                repo.commit(Some("HEAD"), &sig, &sig, "init store", &tree, &[])
-                    .context("failed to create initial commit")?;
             }
             Ok(repo)
         }
@@ -78,8 +56,9 @@ pub(crate) fn is_clean(repo: &Repository) -> anyhow::Result<bool> {
 ///
 /// On Windows, git defaults to `core.autocrlf=true` which converts LF→CRLF on
 /// checkout.  Since synctato always writes LF, without `-text` the working tree
-/// appears permanently dirty.  We also `--renormalize` so that any files already
-/// committed under the old rules get fixed in one shot.
+/// appears permanently dirty.  Adding the attribute is sufficient because the
+/// index already stores LF (git normalizes on add regardless of autocrlf); the
+/// `-text` flag simply tells git to stop expecting CRLF in the working tree.
 pub(crate) fn ensure_gitattributes(repo: &Repository) -> anyhow::Result<()> {
     let workdir = repo.workdir().context("bare repo not supported")?;
     let ga_path = workdir.join(".gitattributes");
@@ -89,27 +68,14 @@ pub(crate) fn ensure_gitattributes(repo: &Repository) -> anyhow::Result<()> {
 
     std::fs::write(&ga_path, "*.jsonl -text\n").context("failed to write .gitattributes")?;
 
-    // Stage .gitattributes itself.
+    // Stage only .gitattributes — we must not touch other tracked files because
+    // the repo may have uncommitted data changes that belong to the caller.
     let mut index = repo.index().context("failed to open index")?;
     index
         .add_path(Path::new(".gitattributes"))
         .context("failed to stage .gitattributes")?;
     index.write().context("failed to write index")?;
 
-    // Renormalize existing tracked files so their index entries match the new
-    // attributes.  This is a no-op on a fresh repo.
-    let _ = std::process::Command::new("git")
-        .args([
-            "-C",
-            &workdir.to_string_lossy(),
-            "add",
-            "--renormalize",
-            ".",
-        ])
-        .output();
-
-    // Re-read the index after the CLI may have mutated it.
-    let mut index = repo.index().context("failed to open index")?;
     let tree_oid = index.write_tree().context("failed to write tree")?;
     let tree = repo.find_tree(tree_oid)?;
     let sig = Signature::now("synctato", "synctato@localhost")?;
@@ -379,15 +345,7 @@ mod tests {
     fn init_repo(path: &Path) -> Repository {
         let mut opts = git2::RepositoryInitOptions::new();
         opts.initial_head("main");
-        let repo = Repository::init_opts(path, &opts).unwrap();
-        // Write and stage .gitattributes so autocrlf doesn't cause phantom diffs
-        // on Windows.  Staging it means the next auto_commit (or manual commit)
-        // will include it, and clones will inherit the attribute.
-        fs::write(path.join(".gitattributes"), "*.jsonl -text\n").unwrap();
-        let mut index = repo.index().unwrap();
-        index.add_path(Path::new(".gitattributes")).unwrap();
-        index.write().unwrap();
-        repo
+        Repository::init_opts(path, &opts).unwrap()
     }
 
     fn init_bare_repo(path: &Path) -> Repository {

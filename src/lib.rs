@@ -1516,6 +1516,12 @@ mod tests {
             .output()
             .unwrap();
 
+        // .gitattributes must NOT exist yet — ensure_gitattributes has to create it.
+        assert!(
+            !path.join(".gitattributes").exists(),
+            ".gitattributes should not exist before transact"
+        );
+
         // Open with synctato and transact — this must succeed even though the
         // repo was created externally with autocrlf=true.
         let mut store = Store::<TestDb>::open(path).unwrap();
@@ -1525,5 +1531,11 @@ mod tests {
                 Ok(())
             })
             .expect("transact should succeed on externally-created repo with autocrlf=true");
+
+        // ensure_gitattributes should have created and committed .gitattributes.
+        assert!(
+            path.join(".gitattributes").exists(),
+            ".gitattributes should exist after transact"
+        );
     }
 }
