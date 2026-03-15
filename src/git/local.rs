@@ -32,8 +32,30 @@ pub fn open_or_init_repo(path: &Path) -> anyhow::Result<Repository> {
         Err(_) => {
             let repo = Repository::init(path)
                 .with_context(|| format!("failed to init git repo at {}", path.display()))?;
+
+            // Prevent line-ending conversion on JSONL data files (cross-platform compat).
+            let workdir = repo.workdir().context("bare repo not supported")?;
+            let ga_path = workdir.join(".gitattributes");
+            if !ga_path.exists() {
+                std::fs::write(&ga_path, "*.jsonl -text\n")
+                    .context("failed to write .gitattributes")?;
+            }
+            let mut index = repo.index().context("failed to open index")?;
+            index
+                .add_path(Path::new(".gitattributes"))
+                .context("failed to stage .gitattributes")?;
+            index.write().context("failed to write index")?;
+
             if !is_clean(&repo)? {
+                // auto_commit will stage data files; .gitattributes is already indexed.
                 auto_commit(&repo, "init store")?;
+            } else {
+                // No data files yet — commit just .gitattributes.
+                let tree_oid = index.write_tree().context("failed to write tree")?;
+                let tree = repo.find_tree(tree_oid)?;
+                let sig = signature(&repo)?;
+                repo.commit(Some("HEAD"), &sig, &sig, "init store", &tree, &[])
+                    .context("failed to create initial commit")?;
             }
             Ok(repo)
         }
