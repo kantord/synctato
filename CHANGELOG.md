@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.12](https://github.com/kantord/synctato/compare/v0.1.11...v0.1.12) - 2026-03-28
+
+### Fixed
+
+- hold flock across git operations in transact() and sync_remote() ([#7](https://github.com/kantord/synctato/pull/7))
+
 ## [0.1.11](https://github.com/kantord/synctato/compare/v0.1.10...v0.1.11) - 2026-03-15
 
 ### Fixed
