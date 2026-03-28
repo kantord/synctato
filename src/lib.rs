@@ -1462,8 +1462,8 @@ mod tests {
 
     #[test]
     fn test_concurrent_transact_does_not_fail() {
-        use std::sync::Barrier;
         use std::sync::Arc;
+        use std::sync::Barrier;
 
         let dir = TempDir::new().unwrap();
 
@@ -1514,8 +1514,16 @@ mod tests {
             let result_a = handle_a.join().unwrap();
             let result_b = handle_b.join().unwrap();
 
-            assert!(result_a.is_ok(), "transact A failed on iter {i}: {:?}", result_a.err());
-            assert!(result_b.is_ok(), "transact B failed on iter {i}: {:?}", result_b.err());
+            assert!(
+                result_a.is_ok(),
+                "transact A failed on iter {i}: {:?}",
+                result_a.err()
+            );
+            assert!(
+                result_b.is_ok(),
+                "transact B failed on iter {i}: {:?}",
+                result_b.err()
+            );
         }
 
         // Verify both writes are actually present (not silently lost).
