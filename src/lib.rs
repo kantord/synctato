@@ -127,6 +127,10 @@ impl<S: Schema> Store<S> {
     }
 
     /// Sync with git remote (fetch, merge, push).
+    ///
+    /// The lock is held for the entire operation, including network I/O
+    /// (fetch/push). This means a slow or unreachable remote will block
+    /// concurrent `transact()` and `sync_remote()` callers.
     pub fn sync_remote(
         &mut self,
         mut on_progress: impl FnMut(SyncEvent),
@@ -1513,6 +1517,14 @@ mod tests {
             assert!(result_a.is_ok(), "transact A failed on iter {i}: {:?}", result_a.err());
             assert!(result_b.is_ok(), "transact B failed on iter {i}: {:?}", result_b.err());
         }
+
+        // Verify both writes are actually present (not silently lost).
+        let final_db = Store::<TestDb>::open(dir.path()).unwrap();
+        let items = final_db.t.items();
+        let keys: Vec<&str> = items.iter().map(|i| i.raw_id.as_str()).collect();
+        assert!(keys.contains(&"seed"), "seed item missing");
+        assert!(keys.contains(&"a"), "item from thread A missing");
+        assert!(keys.contains(&"b"), "item from thread B missing");
     }
 
     #[test]
