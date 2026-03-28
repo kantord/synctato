@@ -98,17 +98,23 @@ impl<S: Schema> Store<S> {
         Ok(result)
     }
 
-    /// Git-aware transaction: ensure_clean → lock → reload → run closure → save → auto_commit → unlock.
+    /// Git-aware transaction: lock → ensure_clean → reload → run closure → save → auto_commit → unlock.
     pub fn transact<T>(
         &mut self,
         msg: &str,
         f: impl FnOnce(&mut S::Transaction<'_>) -> anyhow::Result<T>,
     ) -> anyhow::Result<T> {
+        let _lock = self.lock()?;
         let repo = git::try_open_repo(self.path());
         if let Some(ref repo) = repo {
             git::ensure_clean(repo)?;
         }
-        let result = self.locked_transaction(f)?;
+        self.schema.reload()?;
+        let result = {
+            let mut tx = self.schema.begin();
+            f(&mut tx)?
+        };
+        self.schema.save()?;
         if let Some(ref repo) = repo {
             git::auto_commit(repo, msg)?;
         }
@@ -120,21 +126,12 @@ impl<S: Schema> Store<S> {
         git::git_passthrough(self.path(), args)
     }
 
-    /// Merge remote data under lock: lock → reload → merge → save → unlock.
-    fn locked_merge_remote(&mut self) -> anyhow::Result<Vec<(&'static str, usize)>> {
-        let _lock = self.lock()?;
-        let path = self.path.clone();
-        self.schema.reload()?;
-        let counts = self.schema.merge_remote_from_repo(&path)?;
-        self.schema.save()?;
-        Ok(counts)
-    }
-
     /// Sync with git remote (fetch, merge, push).
     pub fn sync_remote(
         &mut self,
         mut on_progress: impl FnMut(SyncEvent),
     ) -> anyhow::Result<SyncResult> {
+        let _lock = self.lock()?;
         let path = self.path().to_path_buf();
         let repo = match git::try_open_repo(&path) {
             Some(r) => r,
@@ -172,7 +169,9 @@ impl<S: Schema> Store<S> {
 
         // Diverged → merge remote data
         on_progress(SyncEvent::MergingRemote);
-        let counts = self.locked_merge_remote()?;
+        self.schema.reload()?;
+        let counts = self.schema.merge_remote_from_repo(&path)?;
+        self.schema.save()?;
         on_progress(SyncEvent::MergeDone { counts: &counts });
 
         git::auto_commit(&repo, "sync")?;
@@ -1455,6 +1454,65 @@ mod tests {
             deleted_at: ts,
         };
         assert_eq!(row.last_modified(), Some(ts));
+    }
+
+    #[test]
+    fn test_concurrent_transact_does_not_fail() {
+        use std::sync::Barrier;
+        use std::sync::Arc;
+
+        let dir = TempDir::new().unwrap();
+
+        let mut db = Store::<TestDb>::open(dir.path()).unwrap();
+        // Init git repo so transact() uses git code paths
+        let repo = git::open_or_init_repo(dir.path()).unwrap();
+        {
+            let mut config = repo.config().unwrap();
+            config.set_str("user.name", "Test").unwrap();
+            config.set_str("user.email", "test@test.com").unwrap();
+        }
+
+        // Seed with initial data + commit
+        db.transact("initial", |tx| {
+            tx.t.upsert(make_item("seed", "Seed"));
+            Ok(())
+        })
+        .unwrap();
+
+        // Repeat enough times so the race is virtually certain to trigger
+        // if the bug is present.
+        for i in 0..20 {
+            let barrier = Arc::new(Barrier::new(2));
+
+            let path = dir.path().to_path_buf();
+            let path2 = path.clone();
+            let barrier_a = Arc::clone(&barrier);
+            let barrier_b = Arc::clone(&barrier);
+
+            let handle_a = std::thread::spawn(move || {
+                let mut store = Store::<TestDb>::open(&path).unwrap();
+                barrier_a.wait();
+                store.transact("from A", |tx| {
+                    tx.t.upsert(make_item("a", &format!("From A iter {i}")));
+                    Ok(())
+                })
+            });
+
+            let handle_b = std::thread::spawn(move || {
+                let mut store = Store::<TestDb>::open(&path2).unwrap();
+                barrier_b.wait();
+                store.transact("from B", |tx| {
+                    tx.t.upsert(make_item("b", &format!("From B iter {i}")));
+                    Ok(())
+                })
+            });
+
+            let result_a = handle_a.join().unwrap();
+            let result_b = handle_b.join().unwrap();
+
+            assert!(result_a.is_ok(), "transact A failed on iter {i}: {:?}", result_a.err());
+            assert!(result_b.is_ok(), "transact B failed on iter {i}: {:?}", result_b.err());
+        }
     }
 
     #[test]
