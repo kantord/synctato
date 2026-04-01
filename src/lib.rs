@@ -481,16 +481,6 @@ impl<T: TableRow> Table<T> {
         }
     }
 
-    pub fn items(&self) -> Vec<T> {
-        self.items
-            .values()
-            .filter_map(|r| match r {
-                Row::Live { inner, .. } => Some(inner.clone()),
-                Row::Tombstone { .. } => None,
-            })
-            .collect()
-    }
-
     pub fn iter(&self) -> impl Iterator<Item = (&str, &T)> {
         self.items.values().filter_map(|r| match r {
             Row::Live { id, inner, .. } => Some((id.as_str(), inner)),
@@ -645,7 +635,7 @@ mod tests {
                 id_length_for_capacity(TestItem::EXPECTED_CAPACITY)
             )
         );
-        assert_eq!(table.items().len(), 1);
+        assert_eq!(table.iter().count(), 1);
     }
 
     #[test]
@@ -653,9 +643,8 @@ mod tests {
         let (_dir, mut table) = new_test_table();
         table.upsert(make_item("same-id", "Original"));
         table.upsert(make_item("same-id", "Updated"));
-        let items = table.items();
-        assert_eq!(items.len(), 1);
-        assert_eq!(items[0].title, "Updated");
+        assert_eq!(table.iter().count(), 1);
+        assert_eq!(table.iter().next().unwrap().1.title, "Updated");
     }
 
     #[test]
@@ -666,9 +655,9 @@ mod tests {
         table.save().unwrap();
 
         let loaded = Table::<TestItem>::load(dir.path()).unwrap();
-        assert_eq!(loaded.items().len(), 2);
+        assert_eq!(loaded.iter().count(), 2);
 
-        let titles: Vec<String> = loaded.items().iter().map(|i| i.title.clone()).collect();
+        let titles: Vec<String> = loaded.iter().map(|(_, i)| i.title.clone()).collect();
         assert!(titles.contains(&"First".to_string()));
         assert!(titles.contains(&"Second".to_string()));
     }
@@ -676,7 +665,7 @@ mod tests {
     #[test]
     fn test_load_nonexistent_file() {
         let (_dir, table) = new_test_table();
-        assert_eq!(table.items().len(), 0);
+        assert_eq!(table.iter().count(), 0);
     }
 
     /// Read all lines from all shard files in the table directory.
@@ -841,8 +830,8 @@ mod tests {
         fs::write(table_dir.join("items_bb.jsonl"), format!("{}\n", item2)).unwrap();
 
         let table = Table::<TestItem>::load(dir.path()).unwrap();
-        assert_eq!(table.items().len(), 2);
-        let titles: Vec<String> = table.items().iter().map(|i| i.title.clone()).collect();
+        assert_eq!(table.iter().count(), 2);
+        let titles: Vec<String> = table.iter().map(|(_, i)| i.title.clone()).collect();
         assert!(titles.contains(&"From AA".to_string()));
         assert!(titles.contains(&"From BB".to_string()));
     }
@@ -856,8 +845,8 @@ mod tests {
         table.save().unwrap();
 
         let loaded = Table::<TestItem>::load(dir.path()).unwrap();
-        assert_eq!(loaded.items().len(), 3);
-        let titles: Vec<String> = loaded.items().iter().map(|i| i.title.clone()).collect();
+        assert_eq!(loaded.iter().count(), 3);
+        let titles: Vec<String> = loaded.iter().map(|(_, i)| i.title.clone()).collect();
         assert!(titles.contains(&"Alpha".to_string()));
         assert!(titles.contains(&"Beta".to_string()));
         assert!(titles.contains(&"Gamma".to_string()));
@@ -922,8 +911,8 @@ mod tests {
         table.save().unwrap();
 
         let loaded = Table::<TestItem>::load(dir.path()).unwrap();
-        assert_eq!(loaded.items().len(), 1);
-        assert_eq!(loaded.items()[0].title, "Item AA");
+        assert_eq!(loaded.iter().count(), 1);
+        assert_eq!(loaded.iter().next().unwrap().1.title, "Item AA");
 
         fs::write(table_dir.join("items_qq.jsonl"), "").unwrap();
         loaded.save().unwrap();
@@ -935,9 +924,8 @@ mod tests {
         let (_dir, mut table) = new_test_table();
         table.upsert(make_item("same", "First"));
         table.upsert(make_item("same", "Second"));
-        let items = table.items();
-        assert_eq!(items.len(), 1);
-        assert_eq!(items[0].title, "Second");
+        assert_eq!(table.iter().count(), 1);
+        assert_eq!(table.iter().next().unwrap().1.title, "Second");
     }
 
     fn get_updated_at(table: &Table<TestItem>) -> Option<DateTime<Utc>> {
@@ -1006,10 +994,10 @@ mod tests {
     fn test_delete_removes_from_items() {
         let (_dir, mut table) = new_test_table();
         table.upsert(make_item("x", "Item"));
-        assert_eq!(table.items().len(), 1);
+        assert_eq!(table.iter().count(), 1);
 
         table.delete("x");
-        assert_eq!(table.items().len(), 0);
+        assert_eq!(table.iter().count(), 0);
     }
 
     #[test]
@@ -1020,7 +1008,7 @@ mod tests {
         table.save().unwrap();
 
         let loaded = Table::<TestItem>::load(dir.path()).unwrap();
-        assert_eq!(loaded.items().len(), 0);
+        assert_eq!(loaded.iter().count(), 0);
     }
 
     #[test]
@@ -1028,12 +1016,11 @@ mod tests {
         let (_dir, mut table) = new_test_table();
         table.upsert(make_item("x", "Original"));
         table.delete("x");
-        assert_eq!(table.items().len(), 0);
+        assert_eq!(table.iter().count(), 0);
 
         table.upsert(make_item("x", "Resurrected"));
-        let items = table.items();
-        assert_eq!(items.len(), 1);
-        assert_eq!(items[0].title, "Resurrected");
+        assert_eq!(table.iter().count(), 1);
+        assert_eq!(table.iter().next().unwrap().1.title, "Resurrected");
     }
 
     #[test]
@@ -1044,12 +1031,11 @@ mod tests {
         table.save().unwrap();
 
         let mut loaded = Table::<TestItem>::load(dir.path()).unwrap();
-        assert_eq!(loaded.items().len(), 0);
+        assert_eq!(loaded.iter().count(), 0);
 
         loaded.upsert(make_item("x", "Back"));
-        let items = loaded.items();
-        assert_eq!(items.len(), 1);
-        assert_eq!(items[0].title, "Back");
+        assert_eq!(loaded.iter().count(), 1);
+        assert_eq!(loaded.iter().next().unwrap().1.title, "Back");
     }
 
     #[test]
@@ -1078,7 +1064,7 @@ mod tests {
         let (_dir, mut table) = new_test_table();
         table.upsert(make_item("a", "Keep"));
         assert!(table.delete("never-added").is_none());
-        assert_eq!(table.items().len(), 1);
+        assert_eq!(table.iter().count(), 1);
     }
 
     #[test]
@@ -1089,9 +1075,8 @@ mod tests {
         table.upsert(make_item("c", "Also Keep"));
         table.delete("b");
 
-        let items = table.items();
-        assert_eq!(items.len(), 2);
-        let titles: Vec<&str> = items.iter().map(|i| i.title.as_str()).collect();
+        assert_eq!(table.iter().count(), 2);
+        let titles: Vec<&str> = table.iter().map(|(_, i)| i.title.as_str()).collect();
         assert!(titles.contains(&"Keep"));
         assert!(titles.contains(&"Also Keep"));
         assert!(!titles.contains(&"Delete"));
@@ -1133,7 +1118,7 @@ mod tests {
         fs::write(table_dir.join("items_aa.jsonl"), content).unwrap();
 
         let table = Table::<TestItem>::load(dir.path()).unwrap();
-        assert_eq!(table.items().len(), 2);
+        assert_eq!(table.iter().count(), 2);
     }
 
     #[test]
@@ -1147,8 +1132,8 @@ mod tests {
         fs::write(table_dir.join("items_aa.jsonl"), format!("{}\n", content)).unwrap();
 
         let table = Table::<TestItem>::load(dir.path()).unwrap();
-        assert_eq!(table.items().len(), 1);
-        assert_eq!(table.items()[0].title, "Post");
+        assert_eq!(table.iter().count(), 1);
+        assert_eq!(table.iter().next().unwrap().1.title, "Post");
     }
 
     #[cfg(unix)]
@@ -1164,7 +1149,7 @@ mod tests {
             table.save().unwrap();
 
             let loaded = Table::<TestItem>::load(dir.path()).unwrap();
-            assert_eq!(loaded.items().len(), 1);
+            assert_eq!(loaded.iter().count(), 1);
 
             let dir_path = dir.path().to_path_buf();
             let child_status = unsafe { libc::fork() };
@@ -1194,11 +1179,11 @@ mod tests {
             let recovered =
                 Table::<TestItem>::load(dir.path()).expect("load should not fail after a failed save");
             assert_eq!(
-                recovered.items().len(),
+                recovered.iter().count(),
                 1,
                 "original data should survive a failed save()"
             );
-            assert_eq!(recovered.items()[0].title, "Original");
+            assert_eq!(recovered.iter().next().unwrap().1.title, "Original");
         }
     }
 
@@ -1231,9 +1216,8 @@ mod tests {
         .unwrap();
 
         let final_db = Store::<TestDb>::open(dir.path()).unwrap();
-        let items = final_db.t.items();
-        assert_eq!(items.len(), 2);
-        let titles: Vec<&str> = items.iter().map(|i| i.title.as_str()).collect();
+        assert_eq!(final_db.t.iter().count(), 2);
+        let titles: Vec<&str> = final_db.t.iter().map(|(_, i)| i.title.as_str()).collect();
         assert!(
             titles.contains(&"From Other"),
             "reload should preserve other process's write"
@@ -1268,7 +1252,7 @@ mod tests {
 
         let final_db = Store::<TestDb>::open(dir.path()).unwrap();
         assert_eq!(
-            final_db.t.items().len(),
+            final_db.t.iter().count(),
             3,
             "locked_transaction should preserve all items"
         );
@@ -1311,8 +1295,8 @@ mod tests {
         let mut remote = HashMap::new();
         remote.insert("aa".to_string(), make_live_row("aa", "Remote", ts));
         table.merge_remote(remote);
-        assert_eq!(table.items().len(), 1);
-        assert_eq!(table.items()[0].title, "Remote");
+        assert_eq!(table.iter().count(), 1);
+        assert_eq!(table.iter().next().unwrap().1.title, "Remote");
     }
 
     #[test]
@@ -1321,8 +1305,8 @@ mod tests {
         table.upsert(make_item("x", "Local"));
         let remote = HashMap::new();
         table.merge_remote(remote);
-        assert_eq!(table.items().len(), 1);
-        assert_eq!(table.items()[0].title, "Local");
+        assert_eq!(table.iter().count(), 1);
+        assert_eq!(table.iter().next().unwrap().1.title, "Local");
     }
 
     #[rstest]
@@ -1384,10 +1368,10 @@ mod tests {
         table.merge_remote(remote);
         match expected_title {
             Some(title) => {
-                assert_eq!(table.items().len(), 1);
-                assert_eq!(table.items()[0].title, title);
+                assert_eq!(table.iter().count(), 1);
+                assert_eq!(table.iter().next().unwrap().1.title, title);
             }
-            None => assert!(table.items().is_empty()),
+            None => assert!(table.iter().count() == 0),
         }
     }
 
@@ -1402,8 +1386,8 @@ mod tests {
         table.save().unwrap();
 
         let loaded = Table::<TestItem>::load(dir.path()).unwrap();
-        assert_eq!(loaded.items().len(), 1);
-        assert_eq!(loaded.items()[0].title, "Remote");
+        assert_eq!(loaded.iter().count(), 1);
+        assert_eq!(loaded.iter().next().unwrap().1.title, "Remote");
     }
 
     #[rstest]
@@ -1528,8 +1512,7 @@ mod tests {
 
         // Verify both writes are actually present (not silently lost).
         let final_db = Store::<TestDb>::open(dir.path()).unwrap();
-        let items = final_db.t.items();
-        let keys: Vec<&str> = items.iter().map(|i| i.raw_id.as_str()).collect();
+        let keys: Vec<&str> = final_db.t.iter().map(|(_, i)| i.raw_id.as_str()).collect();
         assert!(keys.contains(&"seed"), "seed item missing");
         assert!(keys.contains(&"a"), "item from thread A missing");
         assert!(keys.contains(&"b"), "item from thread B missing");
