@@ -70,7 +70,7 @@ pub(crate) fn is_clean(repo: &Repository) -> anyhow::Result<bool> {
     let statuses = repo.statuses(None).context("failed to get repo status")?;
     let dirty = statuses
         .iter()
-        .any(|entry| entry.path().is_some_and(is_data_file));
+        .any(|entry| entry.path().is_ok_and(is_data_file));
     Ok(!dirty)
 }
 
@@ -198,7 +198,7 @@ fn signature(repo: &Repository) -> anyhow::Result<Signature<'static>> {
 /// Tries the local HEAD branch name first, then falls back to common defaults.
 fn find_remote_ref(repo: &Repository) -> Option<git2::Reference<'_>> {
     if let Ok(head) = repo.head()
-        && let Some(branch) = head.shorthand()
+        && let Ok(branch) = head.shorthand()
     {
         let refname = format!("refs/remotes/origin/{branch}");
         if let Ok(r) = repo.find_reference(&refname) {
