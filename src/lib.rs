@@ -263,9 +263,7 @@ pub(crate) fn parse_rows<T: TableRow>(content: &str) -> anyhow::Result<HashMap<S
 fn hash_id(raw: &str, id_length: usize) -> String {
     use std::fmt::Write;
 
-    let mut hasher = Sha256::new();
-    hasher.update(raw.as_bytes());
-    let digest = hasher.finalize();
+    let digest = Sha256::digest(raw.as_bytes());
 
     let mut id = String::with_capacity(id_length);
     for byte in digest.iter() {
