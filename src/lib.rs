@@ -263,7 +263,8 @@ pub(crate) fn parse_rows<T: TableRow>(content: &str) -> anyhow::Result<HashMap<S
 fn hash_id(raw: &str, id_length: usize) -> String {
     let mut hasher = Sha256::new();
     hasher.update(raw.as_bytes());
-    format!("{:x}", hasher.finalize())[..id_length].to_string()
+    let digest = hasher.finalize();
+    digest.iter().map(|b| format!("{b:02x}")).collect::<String>()[..id_length].to_string()
 }
 
 /// Choose a hex ID length that keeps collision probability < 0.1% for up to
