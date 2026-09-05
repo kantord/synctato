@@ -1,0 +1,34 @@
+repos:
+  - repo: builtin
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+  - repo: https://github.com/hukkin/mdformat
+    rev: 0.7.21
+    hooks:
+      - id: mdformat
+        args: ['--wrap', '79']
+        additional_dependencies:
+          - mdformat-gfm
+        exclude: CHANGELOG.md
+  - repo: local
+    hooks:
+      - id: cargo-fmt
+        name: cargo fmt
+        language: system
+        entry: cargo fmt -- --check
+        files: '\.rs$'
+        pass_filenames: false
+      - id: cargo-clippy
+        name: cargo clippy
+        language: system
+        entry: cargo clippy -- -D warnings
+        files: '\.rs$'
+        pass_filenames: false
+      - id: cargo-test
+        name: cargo test
+        language: system
+        entry: cargo test
+        files: '\.rs$'
+        pass_filenames: false
