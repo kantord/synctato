@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.14](https://github.com/kantord/synctato/compare/v0.1.13...v0.1.14) - 2026-09-05
+
+### Fixed
+
+- *(deps)* update rust crate sha2 to v0.11.0 ([#22](https://github.com/kantord/synctato/pull/22))
+- *(deps)* update rust crate git2 to v0.21.0 ([#20](https://github.com/kantord/synctato/pull/20))
+- *(deps)* update patch updates ([#16](https://github.com/kantord/synctato/pull/16))
+
+### Other
+
+- *(deps)* update github actions ([#17](https://github.com/kantord/synctato/pull/17))
+- match blogtato's config ([#11](https://github.com/kantord/synctato/pull/11))
+
 ## [0.1.13](https://github.com/kantord/synctato/compare/v0.1.12...v0.1.13) - 2026-04-01
 
 ### Added
