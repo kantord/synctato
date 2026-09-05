@@ -8,10 +8,10 @@ description = "A JSONL-based embedded database with sharding, transactions, and 
 repository = "https://github.com/kantord/synctato"
 
 [dependencies]
-anyhow = "=1.0.102"
-chrono = { version = "=0.4.44", features = ["serde"] }
-serde = { version = "=1.0.228", features = ["derive"] }
-serde_json = "=1.0.149"
+anyhow = "=1.0.104"
+chrono = { version = "=0.4.45", features = ["serde"] }
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.151"
 paste = "=1.0.15"
 sha2 = "=0.10.9"
 git2 = "=0.20.4"
