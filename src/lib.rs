@@ -261,10 +261,21 @@ pub(crate) fn parse_rows<T: TableRow>(content: &str) -> anyhow::Result<HashMap<S
 /// birthday-problem sizing in [`id_length_for_capacity`] keeps collision
 /// probability well below 0.1% for the declared capacity.
 fn hash_id(raw: &str, id_length: usize) -> String {
+    use std::fmt::Write;
+
     let mut hasher = Sha256::new();
     hasher.update(raw.as_bytes());
     let digest = hasher.finalize();
-    digest.iter().map(|b| format!("{b:02x}")).collect::<String>()[..id_length].to_string()
+
+    let mut id = String::with_capacity(id_length);
+    for byte in digest.iter() {
+        if id.len() >= id_length {
+            break;
+        }
+        let _ = write!(id, "{byte:02x}");
+    }
+    id.truncate(id_length);
+    id
 }
 
 /// Choose a hex ID length that keeps collision probability < 0.1% for up to
