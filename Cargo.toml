@@ -11,9 +11,9 @@ repository = "https://github.com/kantord/synctato"
 anyhow = "=1.0.104"
 chrono = { version = "=0.4.45", features = ["serde"] }
 serde = { version = "=1.0.229", features = ["derive"] }
-serde_json = "=1.0.151"
+serde_json = "=1.0.154"
 paste = "=1.0.15"
-sha2 = "=0.11.0"
+sha2 = "=0.11.1"
 git2 = "=0.21.0"
 
 [dev-dependencies]
